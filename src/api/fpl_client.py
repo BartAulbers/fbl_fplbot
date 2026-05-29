@@ -81,6 +81,10 @@ class FPLClient:
         """Transfer history for a manager."""
         return await self._get(f"/entry/{team_id}/transfers/")
 
+    async def get_entry_history(self, team_id: int) -> dict:
+        """A manager's full GW-by-GW history (points, rank, etc.)."""
+        return await self._get(f"/entry/{team_id}/history/")
+
     async def get_dream_team(self, gameweek: int) -> dict:
         return await self._get(f"/dream-team/{gameweek}/")
 

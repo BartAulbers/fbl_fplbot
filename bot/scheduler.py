@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
@@ -9,7 +9,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from loguru import logger
 from telegram.ext import Application
 
-from bot.user_state import get_deadline_chat_ids
+from bot.user_state import _load_state, get_deadline_chat_ids
 from src.database.db import get_connection
 
 
@@ -39,9 +39,16 @@ class DeadlineScheduler:
             replace_existing=True,
             max_instances=1,
         )
+        self.scheduler.add_job(
+            self.check_and_send_gw_recap,
+            trigger=CronTrigger(hour=9, minute=0, timezone="UTC"),
+            id="gw-recap",
+            replace_existing=True,
+            max_instances=1,
+        )
         self.scheduler.start()
         loop.create_task(self.check_deadlines())
-        logger.info("Deadline scheduler started (morning refresh at 07:00 UTC)")
+        logger.info("Scheduler started — data refresh 07:00, GW recap 09:00 UTC")
 
     async def nightly_data_refresh(self) -> None:
         logger.info("Nightly refresh job triggered")
@@ -50,6 +57,43 @@ class DeadlineScheduler:
             await nightly_refresh()
         except Exception:
             logger.exception("Nightly refresh job failed")
+
+    async def check_and_send_gw_recap(self) -> None:
+        """Runs at 09:00 UTC daily. Sends GW recap to all users if a new GW just finished."""
+        from bot import cache
+        from bot.recap import fetch_gw_recap, format_gw_recap, get_last_finished_gw
+
+        last_gw = get_last_finished_gw()
+        if last_gw is None:
+            return
+
+        last_sent = cache.read("last_recap_gw", max_age_hours=24 * 365)
+        if last_sent and int(last_sent) >= last_gw:
+            logger.debug("GW recap: already sent for GW{}", last_gw)
+            return
+
+        logger.info("Sending GW{} recap to all users", last_gw)
+        state = _load_state()
+        sent_count = 0
+
+        for user_data in state.values():
+            fpl_id = user_data.get("fpl_id")
+            chat_id = user_data.get("chat_id")
+            if not fpl_id or not chat_id:
+                continue
+            try:
+                data = await fetch_gw_recap(int(fpl_id), last_gw)
+                if data is None:
+                    continue
+                text = format_gw_recap(data)
+                await self.application.bot.send_message(chat_id=chat_id, text=text)
+                sent_count += 1
+            except Exception:
+                logger.exception("Failed to send GW recap to chat {}", chat_id)
+
+        if sent_count > 0:
+            cache.write("last_recap_gw", last_gw)
+            logger.info("GW{} recap sent to {} user(s)", last_gw, sent_count)
 
     async def check_deadlines(self) -> None:
         con = get_connection(read_only=True)
