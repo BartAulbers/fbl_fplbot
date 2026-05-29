@@ -171,8 +171,9 @@ async def squad_news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
+    from bot.data_helpers import get_current_gw
     players = load_news_for_my_squad(update.effective_user.id)
-    text = format_player_news(players)
+    text = format_player_news(players, current_gw=get_current_gw())
     await send_text_chunks(context, update.effective_chat.id, text, reply_markup=get_main_menu_markup())
 
 

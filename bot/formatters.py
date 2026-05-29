@@ -81,7 +81,7 @@ def format_squad(players: list[dict]) -> str:
     return "\n".join(lines).strip()
 
 
-def format_player_news(players: list[dict]) -> str:
+def format_player_news(players: list[dict], current_gw: int | None = None) -> str:
     """
     Combined squad status + news view.
     Grouped by position with 🟢/🟡/🔴 dots, then a 'Concerns' section
@@ -94,7 +94,16 @@ def format_player_news(players: list[dict]) -> str:
     for p in players:
         grouped[p.get("position", "UNK")].append(p)
 
-    lines: list[str] = ["⚽ SQUAD STATUS\n"]
+    if current_gw and current_gw > 3:
+        gw_from = current_gw - 3
+        gw_to   = current_gw - 1
+        mins_note = f"ℹ️ Minutes = total played GW{gw_from}–GW{gw_to} (last 3 GWs)"
+    elif current_gw:
+        mins_note = f"ℹ️ Minutes = total played up to GW{current_gw}"
+    else:
+        mins_note = "ℹ️ Minutes = total from last 3 gameweeks"
+
+    lines: list[str] = ["⚽ SQUAD STATUS", mins_note, ""]
 
     for pos in POSITION_ORDER:
         pos_players = grouped.get(pos, [])
