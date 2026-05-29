@@ -29,6 +29,9 @@ async def transfers_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if update.callback_query:
         await update.callback_query.answer()
 
+    from bot.activity import log_activity
+    log_activity(update.effective_user.id, f"transfers:suggestions")
+
     if is_season_over():
         target = update.callback_query.message if update.callback_query else update.effective_message
         await target.reply_text(
@@ -74,6 +77,8 @@ async def free_transfers_selected(update: Update, context: ContextTypes.DEFAULT_
 
     query = update.callback_query
     await query.answer()
+    from bot.activity import log_activity
+    log_activity(update.effective_user.id, f"transfers:ft:{query.data.rsplit(':',1)[-1]}")
 
     try:
         free_transfers = int(query.data.rsplit(":", 1)[-1])

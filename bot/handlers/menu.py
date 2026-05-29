@@ -84,6 +84,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     set_chat_id(user_id, chat_id)
+    from bot.activity import log_activity
+    log_activity(user_id, "start")
     await update.effective_message.reply_text(
         build_welcome_text(user_id),
         reply_markup=get_main_menu_markup(),
@@ -100,6 +102,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     chat_id = update.effective_chat.id
     set_chat_id(user_id, chat_id)
     data = query.data
+    from bot.activity import log_activity
+    log_activity(user_id, data)
 
     if data == "nav:main":
         await query.message.reply_text(

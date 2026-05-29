@@ -161,6 +161,8 @@ async def squad_news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     query = update.callback_query
     await query.answer()
+    from bot.activity import log_activity
+    log_activity(update.effective_user.id, "team:squad_news")
 
     if not squad_exists(update.effective_user.id):
         await query.message.reply_text(
@@ -184,6 +186,8 @@ async def team_of_gw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     query = update.callback_query
     await query.answer()
+    from bot.activity import log_activity
+    log_activity(update.effective_user.id, "team:totgw")
 
     if is_season_over():
         await query.message.reply_text(

@@ -16,6 +16,8 @@ async def fixture_swings_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     if query:
         await query.answer()
+    from bot.activity import log_activity
+    log_activity(update.effective_user.id, "fixtures:swings")
 
     loading_message = None
     try:
@@ -56,6 +58,8 @@ async def easiest_fixtures_callback(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     if query:
         await query.answer()
+    from bot.activity import log_activity
+    log_activity(update.effective_user.id, "fixtures:easiest")
 
     loading_message = None
     try:
