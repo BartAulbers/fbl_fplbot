@@ -16,7 +16,7 @@ from bot.data_helpers import database_has_player_data, get_my_squad_player_ids, 
 from bot.formatters import format_player_news, format_squad, format_team_of_gw
 from bot.handlers.menu import get_main_menu_markup, show_main_menu
 from bot.user_state import get_fpl_id, set_chat_id, set_fpl_id
-from bot.utils import ensure_user_allowed, safe_delete_message, send_text_chunks
+from bot.utils import ensure_user_allowed, safe_delete_message, edit_or_send_chunks, send_text_chunks
 from src.data.squad_importer import import_squad_from_fpl
 
 WAITING_MANAGER_ID = 0
@@ -165,7 +165,8 @@ async def squad_news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     log_activity(update.effective_user.id, "team:squad_news")
 
     if not squad_exists(update.effective_user.id):
-        await query.message.reply_text(
+        await edit_or_send_chunks(
+            query, context, update.effective_chat.id,
             "No squad imported yet. Use Import Team first.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 Import Team", callback_data="team:import")]]),
         )
@@ -174,7 +175,7 @@ async def squad_news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     from bot.data_helpers import get_current_gw
     players = load_news_for_my_squad(update.effective_user.id)
     text = format_player_news(players, current_gw=get_current_gw())
-    await send_text_chunks(context, update.effective_chat.id, text, reply_markup=get_main_menu_markup())
+    await edit_or_send_chunks(query, context, update.effective_chat.id, text, reply_markup=get_main_menu_markup())
 
 
 def get_squad_news_handler():
@@ -191,25 +192,25 @@ async def team_of_gw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     log_activity(update.effective_user.id, "team:totgw")
 
     if is_season_over():
-        await query.message.reply_text(
+        await edit_or_send_chunks(query, context, update.effective_chat.id,
             "⏸ The season has ended. Team of the GW will return next season.",
-            reply_markup=get_main_menu_markup(),
-        )
+            reply_markup=get_main_menu_markup())
         return
 
     from bot import cache
     loading_message = None
     try:
         if not cache.is_fresh("fpl_data_refreshed"):
-            loading_message = await query.message.reply_text("⏳ Fetching latest FPL data...")
+            loading_message = await context.bot.send_message(
+                chat_id=update.effective_chat.id, text="⏳ Fetching latest FPL data...")
             await refresh_fpl_data(include_predictions=True)
             await safe_delete_message(loading_message)
             loading_message = None
 
         result = load_team_of_gw()
         owned_ids = get_my_squad_player_ids(update.effective_user.id)
-        await send_text_chunks(
-            context, update.effective_chat.id,
+        await edit_or_send_chunks(
+            query, context, update.effective_chat.id,
             format_team_of_gw(result, owned_ids=owned_ids or None),
             reply_markup=get_main_menu_markup(),
         )
@@ -217,10 +218,9 @@ async def team_of_gw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         from loguru import logger
         logger.exception("Team of GW failed")
         await safe_delete_message(loading_message)
-        await query.message.reply_text(
+        await edit_or_send_chunks(query, context, update.effective_chat.id,
             "Sorry, couldn't build the Team of the GW right now.",
-            reply_markup=get_main_menu_markup(),
-        )
+            reply_markup=get_main_menu_markup())
 
 
 def get_team_of_gw_handler():

@@ -15,7 +15,7 @@ from bot.data_helpers import (
 )
 from bot.formatters import format_popular_missing, format_transfer_suggestions
 from bot.handlers.menu import get_main_menu_markup, show_main_menu
-from bot.utils import ensure_user_allowed, safe_delete_message, send_text_chunks
+from bot.utils import ensure_user_allowed, safe_delete_message, edit_or_send_chunks, send_text_chunks
 from config.settings import settings
 from src.strategy.transfer_engine import recommend_transfers
 
@@ -33,11 +33,14 @@ async def transfers_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     log_activity(update.effective_user.id, f"transfers:suggestions")
 
     if is_season_over():
-        target = update.callback_query.message if update.callback_query else update.effective_message
-        await target.reply_text(
-            "⏸ The season has ended. Transfer suggestions will return when the new season starts.",
-            reply_markup=get_main_menu_markup(),
-        )
+        if update.callback_query:
+            await edit_or_send_chunks(update.callback_query, context, update.effective_chat.id,
+                "⏸ The season has ended. Transfer suggestions will return when the new season starts.",
+                reply_markup=get_main_menu_markup())
+        else:
+            await update.effective_message.reply_text(
+                "⏸ The season has ended. Transfer suggestions will return when the new season starts.",
+                reply_markup=get_main_menu_markup())
         return ConversationHandler.END
 
     if not squad_exists(update.effective_user.id):
@@ -47,8 +50,11 @@ async def transfers_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 [InlineKeyboardButton("🏠 Main Menu", callback_data="nav:main")],
             ]
         )
-        target = update.callback_query.message if update.callback_query else update.effective_message
-        await target.reply_text("Import your squad first before requesting transfer suggestions.", reply_markup=markup)
+        if update.callback_query:
+            await edit_or_send_chunks(update.callback_query, context, update.effective_chat.id,
+                "Import your squad first before requesting transfer suggestions.", reply_markup=markup)
+        else:
+            await update.effective_message.reply_text("Import your squad first before requesting transfer suggestions.", reply_markup=markup)
         return ConversationHandler.END
 
     markup = InlineKeyboardMarkup(
@@ -66,8 +72,11 @@ async def transfers_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             [InlineKeyboardButton("❌ Cancel", callback_data="nav:main")],
         ]
     )
-    target = update.callback_query.message if update.callback_query else update.effective_message
-    await target.reply_text("How many free transfers do you have available?", reply_markup=markup)
+    if update.callback_query:
+        await edit_or_send_chunks(update.callback_query, context, update.effective_chat.id,
+            "How many free transfers do you have available?", reply_markup=markup)
+    else:
+        await update.effective_message.reply_text("How many free transfers do you have available?", reply_markup=markup)
     return WAITING_FREE_TRANSFERS
 
 
@@ -84,17 +93,17 @@ async def free_transfers_selected(update: Update, context: ContextTypes.DEFAULT_
         free_transfers = int(query.data.rsplit(":", 1)[-1])
         from bot import cache
         if not cache.is_fresh("fpl_data_refreshed"):
-            loading_message = await query.message.reply_text("⏳ Fetching latest FPL data...")
+            loading_message = await context.bot.send_message(
+                chat_id=update.effective_chat.id, text="⏳ Fetching latest FPL data...")
             await refresh_fpl_data(include_predictions=True)
             await safe_delete_message(loading_message)
 
         my_squad_df = load_squad_with_enrichment(update.effective_user.id)
         all_players_df = load_all_players_with_enrichment()
         if my_squad_df is None or my_squad_df.empty:
-            await query.message.reply_text(
+            await edit_or_send_chunks(query, context, update.effective_chat.id,
                 "No squad data is available after refresh. Please import your team again.",
-                reply_markup=get_main_menu_markup(),
-            )
+                reply_markup=get_main_menu_markup())
             return ConversationHandler.END
 
         current_gw = get_current_gw()
@@ -106,19 +115,17 @@ async def free_transfers_selected(update: Update, context: ContextTypes.DEFAULT_
             risk_appetite=settings.risk_appetite,
             max_suggestions=5,
         )
-        await send_text_chunks(
-            context,
-            update.effective_chat.id,
+        await edit_or_send_chunks(
+            query, context, update.effective_chat.id,
             format_transfer_suggestions(plan),
             reply_markup=get_main_menu_markup(),
         )
         return ConversationHandler.END
     except Exception:
         logger.exception("Transfer suggestions failed")
-        await query.message.reply_text(
+        await edit_or_send_chunks(query, context, update.effective_chat.id,
             "Sorry, I couldn't generate transfer suggestions right now.",
-            reply_markup=get_main_menu_markup(),
-        )
+            reply_markup=get_main_menu_markup())
         return ConversationHandler.END
 
 
@@ -134,17 +141,16 @@ async def missing_players_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
 
     if not squad_exists(update.effective_user.id):
-        await query.message.reply_text(
+        await edit_or_send_chunks(query, context, update.effective_chat.id,
             "Import your squad first so I can show what popular players you're missing.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 Import Team", callback_data="team:import")]]),
-        )
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 Import Team", callback_data="team:import")]]))
         return
 
-    loading = await query.message.reply_text("⏳ Loading popular players...")
+    loading = await context.bot.send_message(chat_id=update.effective_chat.id, text="⏳ Loading popular players...")
     players = load_popular_missing_players(update.effective_user.id)
     await safe_delete_message(loading)
     text = format_popular_missing(players)
-    await send_text_chunks(context, update.effective_chat.id, text, reply_markup=get_main_menu_markup())
+    await edit_or_send_chunks(query, context, update.effective_chat.id, text, reply_markup=get_main_menu_markup())
 
 
 def get_missing_players_handler():

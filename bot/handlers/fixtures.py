@@ -7,7 +7,7 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 from bot.data_helpers import is_season_over, load_easiest_fixtures, load_fixture_swings, refresh_fpl_data
 from bot.formatters import format_easiest_fixtures, format_fixture_swings
 from bot.handlers.menu import get_main_menu_markup
-from bot.utils import ensure_user_allowed, safe_delete_message, send_text_chunks
+from bot.utils import ensure_user_allowed, safe_delete_message, edit_or_send_chunks, send_text_chunks
 
 
 async def fixture_swings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -22,11 +22,9 @@ async def fixture_swings_callback(update: Update, context: ContextTypes.DEFAULT_
     loading_message = None
     try:
         if is_season_over():
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="⏸ The season has ended. Fixture swings will be available once the new season starts.",
-                reply_markup=get_main_menu_markup(),
-            )
+            await edit_or_send_chunks(query, context, update.effective_chat.id,
+                "⏸ The season has ended. Fixture swings will be available once the new season starts.",
+                reply_markup=get_main_menu_markup())
             return
         from bot import cache
         if not cache.is_fresh("fpl_data_refreshed"):
@@ -37,19 +35,13 @@ async def fixture_swings_callback(update: Update, context: ContextTypes.DEFAULT_
             await safe_delete_message(loading_message)
             loading_message = None
         alerts = load_fixture_swings()
-        await send_text_chunks(
-            context, update.effective_chat.id,
-            format_fixture_swings(alerts),
-            reply_markup=get_main_menu_markup(),
-        )
+        await edit_or_send_chunks(query, context, update.effective_chat.id,
+            format_fixture_swings(alerts), reply_markup=get_main_menu_markup())
     except Exception:
         logger.exception("Fixture swings failed")
         await safe_delete_message(loading_message)
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Sorry, couldn't load fixture swings right now.",
-            reply_markup=get_main_menu_markup(),
-        )
+        await edit_or_send_chunks(query, context, update.effective_chat.id,
+            "Sorry, couldn't load fixture swings right now.", reply_markup=get_main_menu_markup())
 
 
 async def easiest_fixtures_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -64,11 +56,9 @@ async def easiest_fixtures_callback(update: Update, context: ContextTypes.DEFAUL
     loading_message = None
     try:
         if is_season_over():
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="⏸ The season has ended. Fixture data will be available once the new season starts.",
-                reply_markup=get_main_menu_markup(),
-            )
+            await edit_or_send_chunks(query, context, update.effective_chat.id,
+                "⏸ The season has ended. Fixture data will be available once the new season starts.",
+                reply_markup=get_main_menu_markup())
             return
         from bot import cache
         if not cache.is_fresh("fpl_data_refreshed"):
@@ -79,19 +69,13 @@ async def easiest_fixtures_callback(update: Update, context: ContextTypes.DEFAUL
             await safe_delete_message(loading_message)
             loading_message = None
         rows = load_easiest_fixtures(top_n=5)
-        await send_text_chunks(
-            context, update.effective_chat.id,
-            format_easiest_fixtures(rows),
-            reply_markup=get_main_menu_markup(),
-        )
+        await edit_or_send_chunks(query, context, update.effective_chat.id,
+            format_easiest_fixtures(rows), reply_markup=get_main_menu_markup())
     except Exception:
         logger.exception("Easiest fixtures failed")
         await safe_delete_message(loading_message)
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Sorry, couldn't load fixture data right now.",
-            reply_markup=get_main_menu_markup(),
-        )
+        await edit_or_send_chunks(query, context, update.effective_chat.id,
+            "Sorry, couldn't load fixture data right now.", reply_markup=get_main_menu_markup())
 
 
 # Keep old name as alias so main.py doesn't need patching for the command handler

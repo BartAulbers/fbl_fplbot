@@ -59,6 +59,45 @@ async def safe_delete_message(message) -> None:
         return
 
 
+async def edit_or_reply(
+    query,
+    text: str,
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+) -> None:
+    """
+    Edit the message that triggered the callback in place.
+    Falls back to reply_text if the message cannot be edited
+    (e.g. it was sent by another bot, or is too old).
+    """
+    try:
+        await query.edit_message_text(text=text, reply_markup=reply_markup)
+    except Exception:
+        await query.message.reply_text(text=text, reply_markup=reply_markup)
+
+
+async def edit_or_send_chunks(
+    query,
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    text: str,
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+) -> None:
+    """
+    For content responses: if text fits in one message, edit in place.
+    If it needs multiple chunks, delete the original and send fresh chunks.
+    """
+    if len(text) <= MAX_MESSAGE_LENGTH:
+        try:
+            await query.edit_message_text(text=text, reply_markup=reply_markup)
+            return
+        except Exception:
+            pass
+
+    # Multi-chunk: delete old message and send fresh
+    await safe_delete_message(query.message)
+    await send_text_chunks(context, chat_id, text, reply_markup=reply_markup)
+
+
 async def send_text_chunks(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,

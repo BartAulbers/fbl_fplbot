@@ -4,7 +4,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from bot.user_state import get_user_state, set_chat_id, set_deadline_reminder
-from bot.utils import ensure_user_allowed
+from bot.utils import edit_or_reply, ensure_user_allowed
 
 
 def get_main_menu_markup() -> InlineKeyboardMarkup:
@@ -106,22 +106,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     log_activity(user_id, data)
 
     if data == "nav:main":
-        await query.message.reply_text(
-            build_welcome_text(user_id),
-            reply_markup=get_main_menu_markup(),
-        )
+        await edit_or_reply(query, build_welcome_text(user_id), reply_markup=get_main_menu_markup())
         return
 
     if data in ("menu:team", "menu:import"):
-        await query.message.reply_text("⚽ Team", reply_markup=get_team_submenu_markup())
+        await edit_or_reply(query, "⚽ Team", reply_markup=get_team_submenu_markup())
         return
 
     if data == "menu:transfers":
-        await query.message.reply_text("🔄 Transfers", reply_markup=get_transfers_submenu_markup())
+        await edit_or_reply(query, "🔄 Transfers", reply_markup=get_transfers_submenu_markup())
         return
 
     if data == "menu:fixtures":
-        await query.message.reply_text("📅 Fixtures", reply_markup=get_fixtures_submenu_markup())
+        await edit_or_reply(query, "📅 Fixtures", reply_markup=get_fixtures_submenu_markup())
         return
 
     if data == "menu:deadline":
@@ -136,26 +133,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 [InlineKeyboardButton("❌ Back", callback_data="nav:main")],
             ]
         )
-        await query.message.reply_text(
-            f"Deadline reminders are currently {status}. Choose an option:",
-            reply_markup=markup,
-        )
+        await edit_or_reply(query, f"Deadline reminders are currently {status}. Choose an option:", reply_markup=markup)
         return
 
     if data == "deadline:on":
         set_deadline_reminder(user_id, chat_id, True)
-        await query.message.reply_text(
-            "🔔 Deadline reminders enabled. You'll get a message about 1 hour before each FPL deadline.",
-            reply_markup=get_main_menu_markup(),
-        )
+        await edit_or_reply(query, "🔔 Deadline reminders enabled. You'll get a message about 1 hour before each FPL deadline.", reply_markup=get_main_menu_markup())
         return
 
     if data == "deadline:off":
         set_deadline_reminder(user_id, chat_id, False)
-        await query.message.reply_text(
-            "🔕 Deadline reminders disabled.",
-            reply_markup=get_main_menu_markup(),
-        )
+        await edit_or_reply(query, "🔕 Deadline reminders disabled.", reply_markup=get_main_menu_markup())
+        return
 
     if data == "transfers:xpts_info":
         text = (
@@ -182,4 +171,4 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "⚡ Consistency  ·  🏟 Team strength  ·  🟡 Availability\n\n"
             "Model accuracy: CV MAE ≈ 0.97 pts (trained on 27,231 samples)"
         )
-        await query.message.reply_text(text, reply_markup=get_transfers_submenu_markup())
+        await edit_or_reply(query, text, reply_markup=get_transfers_submenu_markup())
