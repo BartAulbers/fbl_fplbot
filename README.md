@@ -56,25 +56,71 @@ Use `/start` to open the main menu.
 
 ## Docker / Synology NAS Setup
 
-Polling mode means you do not need webhooks, public HTTPS, reverse proxies, or port forwarding.
+Polling mode means you do **not** need webhooks, public HTTPS, reverse proxies, or port forwarding. Works perfectly behind double NAT.
 
-### 1. Build and run with Docker Compose
+### 1. SSH into your NAS and create the data folders
+
+The bind-mount paths must exist **before** you start the container, otherwise Docker will throw a "does not exist" error.
+
+```bash
+mkdir -p /volume1/docker/fbl-bot/data/models
+mkdir -p /volume1/docker/fbl-bot/data/raw
+mkdir -p /volume1/docker/fbl-bot/data/processed
+mkdir -p /volume1/docker/fbl-bot/data/kaggle
+mkdir -p /volume1/docker/fbl-bot/data/cache
+mkdir -p /volume1/docker/fbl-bot/logs
+```
+
+### 2. Copy the project to your NAS
+
+```bash
+git clone https://github.com/BartAulbers/fbl_fplbot.git /volume1/docker/fbl-bot
+cd /volume1/docker/fbl-bot
+```
+
+### 3. Create your `.env` file
+
+```bash
+cp .env.example .env
+vi .env   # or nano .env
+```
+
+Set at minimum:
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_ALLOWED_USER_IDS=   # leave empty to allow all, or add your user ID
+```
+
+### 4. Update `docker-compose.yml` with absolute NAS paths
+
+Edit the volumes section to use absolute paths:
+
+```yaml
+volumes:
+  - /volume1/docker/fbl-bot/data:/app/data
+  - /volume1/docker/fbl-bot/logs:/app/logs
+```
+
+### 5. Build and start
 
 ```bash
 docker compose up -d --build
 ```
 
-### 2. Example compose setup
+### 6. Check logs
 
-`docker-compose.yml` is included and mounts `./data` into the container so DuckDB, models, and user state persist across restarts.
+```bash
+docker compose logs -f fbl-bot
+# Or tail the activity log directly:
+tail -f /volume1/docker/fbl-bot/logs/activity.log
+```
 
-### 3. Synology notes for double-NAT environments
+### Synology notes
 
-- Use polling mode only.
-- Store your bot token in `.env` on the NAS.
-- Mount the `data/` directory to persistent storage.
-- Set restart policy to `unless-stopped` so the bot resumes after NAS reboots.
-- No inbound ports are required for Telegram polling.
+- Polling mode only — no inbound ports, no port forwarding needed.
+- Set restart policy to `unless-stopped` (already in compose) so the bot survives NAS reboots.
+- DuckDB, trained models, user state, and log files all live in the mounted `data/` and `logs/` folders and persist across container rebuilds.
+- The 7 AM data refresh and 9 AM GW recap run automatically via the built-in scheduler.
 
 ## Common Commands
 

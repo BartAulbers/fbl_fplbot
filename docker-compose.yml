@@ -2,11 +2,15 @@ version: '3.8'
 services:
   fbl-bot:
     build: .
+    container_name: fbl-bot
     restart: unless-stopped
-    environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     env_file:
       - .env
     volumes:
+      # On Synology: create /volume1/docker/fbl-bot/data and /logs first
+      # then update these paths to match your NAS folder structure, e.g.:
+      #   - /volume1/docker/fbl-bot/data:/app/data
+      #   - /volume1/docker/fbl-bot/logs:/app/logs
       - ./data:/app/data
+      - ./logs:/app/logs
     command: python -m bot.main
