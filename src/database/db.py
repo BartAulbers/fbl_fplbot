@@ -21,6 +21,7 @@ def init_db() -> None:
     con.execute(SCHEMA_SQL)
     for migration in MIGRATION_SQL:
         con.execute(migration)
+    _add_column_if_missing(con, "telegram_users", "deadline_reminder_2h", "BOOLEAN DEFAULT FALSE")
     _add_column_if_missing(con, "players", "defensive_contribution", "FLOAT DEFAULT 0")
     _add_column_if_missing(con, "player_gw_history", "defensive_contribution", "FLOAT DEFAULT 0")
     _migrate_my_squad_user_id(con)
@@ -252,6 +253,7 @@ CREATE TABLE IF NOT EXISTS telegram_users (
     chat_id     BIGINT,
     fpl_manager_id INTEGER,
     deadline_reminder BOOLEAN DEFAULT FALSE,
+    deadline_reminder_2h BOOLEAN DEFAULT FALSE,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 """

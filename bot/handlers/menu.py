@@ -3,7 +3,7 @@ from __future__ import annotations
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from bot.user_state import get_user_state, set_chat_id, set_deadline_reminder
+from bot.user_state import get_user_state, set_chat_id, set_deadline_reminder, set_deadline_reminder_for
 from bot.utils import edit_or_reply, ensure_user_allowed
 
 
@@ -61,7 +61,9 @@ def build_welcome_text(user_id: int) -> str:
     if state.get("fpl_id"):
         lines.append(f"Stored FPL Manager ID: {state['fpl_id']}")
     lines.append(
-        f"Deadline reminders: {'ON' if state.get('deadline_reminder') else 'OFF'}"
+        "Deadline reminders: "
+        f"1h {'ON' if state.get('deadline_reminder') else 'OFF'}, "
+        f"2h {'ON' if state.get('deadline_reminder_2h') else 'OFF'}"
     )
     return "\n\n".join(lines)
 
@@ -123,17 +125,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if data == "menu:deadline":
         state = get_user_state(user_id)
-        status = "enabled" if state.get("deadline_reminder") else "disabled"
+        one_hour = "ON" if state.get("deadline_reminder") else "OFF"
+        two_hour = "ON" if state.get("deadline_reminder_2h") else "OFF"
         markup = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("✅ Enable", callback_data="deadline:on"),
-                    InlineKeyboardButton("🚫 Disable", callback_data="deadline:off"),
+                    InlineKeyboardButton("✅ 1h ON", callback_data="deadline:on"),
+                    InlineKeyboardButton("🚫 1h OFF", callback_data="deadline:off"),
+                ],
+                [
+                    InlineKeyboardButton("✅ 2h ON", callback_data="deadline:2h:on"),
+                    InlineKeyboardButton("🚫 2h OFF", callback_data="deadline:2h:off"),
                 ],
                 [InlineKeyboardButton("❌ Back", callback_data="nav:main")],
             ]
         )
-        await edit_or_reply(query, f"Deadline reminders are currently {status}. Choose an option:", reply_markup=markup)
+        await edit_or_reply(query, f"Deadline reminders: 1 hour {one_hour}, 2 hours {two_hour}.", reply_markup=markup)
         return
 
     if data == "deadline:on":
@@ -144,6 +151,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == "deadline:off":
         set_deadline_reminder(user_id, chat_id, False)
         await edit_or_reply(query, "🔕 Deadline reminders disabled.", reply_markup=get_main_menu_markup())
+        return
+
+    if data in ("deadline:2h:on", "deadline:2h:off"):
+        enabled = data.endswith(":on")
+        set_deadline_reminder_for(user_id, chat_id, "deadline_reminder_2h", enabled)
+        message = "🔔 2-hour deadline reminders enabled." if enabled else "🔕 2-hour deadline reminders disabled."
+        await edit_or_reply(query, message, reply_markup=get_main_menu_markup())
         return
 
     if data == "transfers:xpts_info":

@@ -9,7 +9,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from loguru import logger
 from telegram.ext import Application
 
-from bot.user_state import _load_state, get_deadline_chat_ids
+from bot.user_state import _load_state, get_deadline_chat_ids_for
 from src.database.db import get_connection
 
 
@@ -98,49 +98,49 @@ class DeadlineScheduler:
     async def check_deadlines(self) -> None:
         con = get_connection(read_only=True)
         try:
-            row = con.execute(
+            rows = con.execute(
                 """
                 SELECT id, name, deadline_time
                 FROM gameweeks
                 WHERE deadline_time IS NOT NULL
                   AND deadline_time > CURRENT_TIMESTAMP
                 ORDER BY deadline_time ASC
-                LIMIT 1
                 """
-            ).fetchone()
+            ).fetchall()
         finally:
             con.close()
 
-        if not row:
+        if not rows:
             return
-
-        gw_id, _gw_name, deadline_time = row
-        if deadline_time is None:
-            return
-
-        if getattr(deadline_time, "tzinfo", None) is None:
-            deadline_time = deadline_time.replace(tzinfo=timezone.utc)
-        else:
-            deadline_time = deadline_time.astimezone(timezone.utc)
 
         now = datetime.now(timezone.utc)
-        minutes_until_deadline = (deadline_time - now).total_seconds() / 60.0
-        notification_key = f"{gw_id}:{deadline_time.isoformat()}"
-
-        if notification_key in self._notified_keys:
-            return
-
-        if 55 <= minutes_until_deadline <= 65:
-            message = (
-                f"⚽ FPL Deadline in 1 hour! GW{gw_id} deadline is at "
-                f"{deadline_time.astimezone().strftime('%Y-%m-%d %H:%M %Z')}. Make your transfers now!"
-            )
-            for chat_id in get_deadline_chat_ids():
-                try:
-                    await self.application.bot.send_message(chat_id=chat_id, text=message)
-                except Exception:
-                    logger.exception("Failed to send deadline reminder to chat {}", chat_id)
-            self._notified_keys.add(notification_key)
+        reminder_windows = (
+            ("deadline_reminder_2h", 115, 125, "2 hours"),
+            ("deadline_reminder", 55, 65, "1 hour"),
+        )
+        for gw_id, _gw_name, deadline_time in rows:
+            if deadline_time is None:
+                continue
+            if getattr(deadline_time, "tzinfo", None) is None:
+                deadline_time = deadline_time.replace(tzinfo=timezone.utc)
+            else:
+                deadline_time = deadline_time.astimezone(timezone.utc)
+            minutes_until_deadline = (deadline_time - now).total_seconds() / 60.0
+            for preference_key, lower, upper, reminder_label in reminder_windows:
+                notification_key = f"{preference_key}:{gw_id}:{deadline_time.isoformat()}"
+                if notification_key in self._notified_keys:
+                    continue
+                if lower <= minutes_until_deadline <= upper:
+                    message = (
+                        f"⚽ FPL Deadline in {reminder_label}! GW{gw_id} deadline is at "
+                        f"{deadline_time.astimezone().strftime('%Y-%m-%d %H:%M %Z')}. Make your transfers now!"
+                    )
+                    for chat_id in get_deadline_chat_ids_for(preference_key):
+                        try:
+                            await self.application.bot.send_message(chat_id=chat_id, text=message)
+                        except Exception:
+                            logger.exception("Failed to send deadline reminder to chat {}", chat_id)
+                    self._notified_keys.add(notification_key)
 
     def stop(self) -> None:
         if self.scheduler is None:

@@ -77,7 +77,7 @@ def main() -> None:
     # Menu navigation (sub-menus + deadline)
     app.add_handler(CallbackQueryHandler(
         button_callback,
-        pattern="^(nav:main|menu:team|menu:transfers|menu:fixtures|menu:deadline|menu:import|deadline:(on|off)|transfers:xpts_info)$",
+        pattern="^(nav:main|menu:team|menu:transfers|menu:fixtures|menu:deadline|menu:import|deadline:(on|off|2h:(on|off))|transfers:xpts_info)$",
     ))
 
     # Commands
@@ -139,7 +139,7 @@ if __name__ == "__main__":
     # Menu navigation (sub-menus + deadline)
     app.add_handler(CallbackQueryHandler(
         button_callback,
-        pattern="^(nav:main|menu:team|menu:transfers|menu:fixtures|menu:deadline|menu:import|deadline:(on|off)|transfers:xpts_info)$",
+        pattern="^(nav:main|menu:team|menu:transfers|menu:fixtures|menu:deadline|menu:import|deadline:(on|off|2h:(on|off))|transfers:xpts_info)$",
     ))
 
     # Commands

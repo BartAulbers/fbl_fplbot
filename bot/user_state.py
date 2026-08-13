@@ -43,6 +43,7 @@ def _default_user_state(user_id: int) -> dict[str, Any]:
         "chat_id": None,
         "fpl_id": None,
         "deadline_reminder": False,
+        "deadline_reminder_2h": False,
     }
 
 
@@ -52,14 +53,17 @@ def _sync_user_to_db(user_id: int, state: dict[str, Any]) -> None:
         con.execute("DELETE FROM telegram_users WHERE user_id = ?", [int(user_id)])
         con.execute(
             """
-            INSERT INTO telegram_users (user_id, chat_id, fpl_manager_id, deadline_reminder)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO telegram_users (
+                user_id, chat_id, fpl_manager_id, deadline_reminder, deadline_reminder_2h
+            )
+            VALUES (?, ?, ?, ?, ?)
             """,
             [
                 int(user_id),
                 state.get("chat_id"),
                 state.get("fpl_id"),
                 bool(state.get("deadline_reminder", False)),
+                bool(state.get("deadline_reminder_2h", False)),
             ],
         )
         con.close()
@@ -99,22 +103,35 @@ def set_chat_id(user_id: int, chat_id: int) -> None:
 
 
 def get_deadline_chat_ids() -> list[int]:
+    return get_deadline_chat_ids_for("deadline_reminder")
+
+
+def get_deadline_chat_ids_for(preference_key: str) -> list[int]:
     with _LOCK:
         state = _load_state()
         chat_ids = []
         for user_state in state.values():
-            if user_state.get("deadline_reminder") and user_state.get("chat_id") is not None:
+            if user_state.get(preference_key) and user_state.get("chat_id") is not None:
                 chat_ids.append(int(user_state["chat_id"]))
         return sorted(set(chat_ids))
 
 
 def set_deadline_reminder(user_id: int, chat_id: int, enabled: bool) -> None:
+    set_deadline_reminder_for(user_id, chat_id, "deadline_reminder", enabled)
+
+
+def set_deadline_reminder_for(
+    user_id: int,
+    chat_id: int,
+    preference_key: str,
+    enabled: bool,
+) -> None:
     with _LOCK:
         state = _load_state()
         user_key = str(user_id)
         user_state = dict(state.get(user_key, _default_user_state(user_id)))
         user_state["chat_id"] = int(chat_id)
-        user_state["deadline_reminder"] = bool(enabled)
+        user_state[preference_key] = bool(enabled)
         state[user_key] = user_state
         _save_state(state)
         _sync_user_to_db(user_id, user_state)
