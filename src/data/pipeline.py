@@ -76,6 +76,7 @@ def _upsert_players(con, elements: list[dict]) -> None:
             "expected_assists": float(e.get("expected_assists") or 0),
             "expected_goal_involvements": float(e.get("expected_goal_involvements") or 0),
             "expected_goals_conceded": float(e.get("expected_goals_conceded") or 0),
+            "defensive_contribution": float(e.get("defensive_contribution") or 0),
             "transfers_in_event": e.get("transfers_in_event", 0),
             "transfers_out_event": e.get("transfers_out_event", 0),
             "value_form": float(e.get("value_form") or 0),
@@ -96,6 +97,7 @@ def _upsert_players(con, elements: list[dict]) -> None:
             goals_conceded, yellow_cards, red_cards, saves, bonus, bps,
             influence, creativity, threat, ict_index,
             expected_goals, expected_assists, expected_goal_involvements, expected_goals_conceded,
+            defensive_contribution,
             transfers_in_event, transfers_out_event, value_form, value_season,
             news, news_added, updated_at
         )
@@ -106,6 +108,7 @@ def _upsert_players(con, elements: list[dict]) -> None:
             goals_conceded, yellow_cards, red_cards, saves, bonus, bps,
             influence, creativity, threat, ict_index,
             expected_goals, expected_assists, expected_goal_involvements, expected_goals_conceded,
+            defensive_contribution,
             transfers_in_event, transfers_out_event, value_form, value_season,
             news, news_added, updated_at
         FROM df
@@ -191,6 +194,7 @@ def _upsert_player_history(con, player_id: int, history: list[dict]) -> None:
             "expected_assists": float(h.get("expected_assists") or 0),
             "expected_goal_involvements": float(h.get("expected_goal_involvements") or 0),
             "expected_goals_conceded": float(h.get("expected_goals_conceded") or 0),
+            "defensive_contribution": float(h.get("defensive_contribution") or 0),
             "value": h["value"] / 10.0,
             "selected": float(h.get("selected") or 0),
             "was_home": h["was_home"],
@@ -206,6 +210,7 @@ def _upsert_player_history(con, player_id: int, history: list[dict]) -> None:
         "influence", "creativity", "threat", "ict_index",
         "expected_goals", "expected_assists", "expected_goal_involvements",
         "expected_goals_conceded",
+        "defensive_contribution",
     ]
     mean_cols = ["value", "selected"]
 
@@ -215,6 +220,15 @@ def _upsert_player_history(con, player_id: int, history: list[dict]) -> None:
     agg["round"] = "first"
 
     df = df.groupby(["player_id", "gameweek_id"], as_index=False).agg(agg)
+    history_columns = [
+        "player_id", "gameweek_id", "total_points", "minutes", "goals_scored", "assists",
+        "clean_sheets", "goals_conceded", "own_goals", "penalties_saved", "penalties_missed",
+        "yellow_cards", "red_cards", "saves", "bonus", "bps", "influence", "creativity",
+        "threat", "ict_index", "expected_goals", "expected_assists",
+        "expected_goal_involvements", "expected_goals_conceded", "value", "selected",
+        "was_home", "round", "defensive_contribution",
+    ]
+    df = df[history_columns]
 
     con.execute(f"DELETE FROM player_gw_history WHERE player_id = {player_id}")
     con.execute("INSERT INTO player_gw_history SELECT * FROM df")

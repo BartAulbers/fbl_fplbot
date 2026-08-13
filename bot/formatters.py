@@ -161,7 +161,7 @@ def format_transfer_suggestions(plan: TransferPlan) -> str:
             f"{i}.{hit_tag}",
             f"  OUT  {s.player_out['web_name']} {_as_money(s.player_out['cost'])} · xPts {s.player_out['xpts']:.1f}",
             f"  IN   {s.player_in['web_name']} {_as_money(s.player_in['cost'])} · xPts {s.player_in['xpts']:.1f}",
-            f"  Gain +{s.expected_gain_1gw:.1f}pt (1GW)  +{s.expected_gain_3gw:.1f}pt (3GW)  {s.confidence.upper()} confidence",
+            f"  Gain +{s.expected_gain_1gw:.1f}pt (1GW)  +{s.expected_gain_3gw:.1f}pt (3GW)  +{s.expected_gain_5gw:.1f}pt (5GW)  {s.confidence.upper()} confidence",
             f"  {s.reasoning}",
             "",
         ])

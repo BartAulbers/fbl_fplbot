@@ -21,6 +21,8 @@ def init_db() -> None:
     con.execute(SCHEMA_SQL)
     for migration in MIGRATION_SQL:
         con.execute(migration)
+    _add_column_if_missing(con, "players", "defensive_contribution", "FLOAT DEFAULT 0")
+    _add_column_if_missing(con, "player_gw_history", "defensive_contribution", "FLOAT DEFAULT 0")
     _migrate_my_squad_user_id(con)
     con.close()
     logger.info("Database initialised at {}", settings.db_path)
@@ -57,6 +59,18 @@ def _migrate_my_squad_user_id(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("DROP TABLE my_squad")
     con.execute("ALTER TABLE my_squad_new RENAME TO my_squad")
     logger.info("my_squad migration complete")
+
+
+def _add_column_if_missing(con, table: str, column: str, definition: str) -> None:
+    columns = {
+        row[0]
+        for row in con.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = ?",
+            [table],
+        ).fetchall()
+    }
+    if column not in columns:
+        con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 # ── Schema ─────────────────────────────────────────────────────────────────────
@@ -109,6 +123,7 @@ CREATE TABLE IF NOT EXISTS players (
     expected_assists FLOAT,
     expected_goal_involvements FLOAT,
     expected_goals_conceded FLOAT,
+    defensive_contribution FLOAT DEFAULT 0,
     transfers_in_event  INTEGER,
     transfers_out_event INTEGER,
     value_form      FLOAT,
@@ -176,6 +191,7 @@ CREATE TABLE IF NOT EXISTS player_gw_history (
     selected        FLOAT,           -- ownership %
     was_home        BOOLEAN,
     round           INTEGER,
+    defensive_contribution FLOAT DEFAULT 0,
     PRIMARY KEY (player_id, gameweek_id)
 );
 

@@ -34,6 +34,11 @@ def build_feature_matrix(
     form_w = settings.form_window
     history = player_history.copy()
     history = history.sort_values(["player_id", "gameweek_id"])
+    if "defensive_contribution" not in history.columns:
+        history["defensive_contribution"] = 0.0
+    if "defensive_contribution" not in players.columns:
+        players = players.copy()
+        players["defensive_contribution"] = 0.0
 
     # ── 1. Form features (last N GWs weighted) ────────────────────────────
     weights = np.array([0.5 ** i for i in range(form_w)])[::-1]
@@ -66,6 +71,7 @@ def build_feature_matrix(
             "form_own_goals":          np.dot(recent["own_goals"].values, w),
             "form_penalties_missed":   np.dot(recent["penalties_missed"].values, w),
             "form_penalties_saved":    np.dot(recent["penalties_saved"].values, w),
+            "form_defcon":             np.dot(recent["defensive_contribution"].values, w),
             # ── Combined deduction score (weighted pts cost) ──────────────
             "form_deduction_risk":     np.dot(
                 (recent["yellow_cards"] * 1
@@ -81,6 +87,14 @@ def build_feature_matrix(
         .apply(weighted_form, include_groups=False)
         .reset_index()
     )
+    if form_df.empty or "form_pts" not in form_df.columns:
+        form_df = pd.DataFrame(columns=[
+            "player_id", "form_pts", "form_minutes", "form_goals", "form_assists",
+            "form_cs", "form_bonus", "form_xgi", "form_bps", "form_saves", "form_gc",
+            "form_xgc", "form_clean_sheet_rate", "form_yellow_cards", "form_red_cards",
+            "form_own_goals", "form_penalties_missed", "form_penalties_saved", "form_defcon",
+            "form_deduction_risk",
+        ])
 
     # ── 2. Consistency (1 - CV of points) ─────────────────────────────────
     def consistency(grp: pd.DataFrame) -> pd.Series:
@@ -96,6 +110,8 @@ def build_feature_matrix(
         .apply(consistency, include_groups=False)
         .reset_index()
     )
+    if cons_df.empty or "consistency" not in cons_df.columns:
+        cons_df = pd.DataFrame(columns=["player_id", "consistency", "pts_variance"])
 
     # ── 3. Home vs away split ─────────────────────────────────────────────
     def home_away(grp: pd.DataFrame) -> pd.Series:
@@ -113,6 +129,10 @@ def build_feature_matrix(
         .apply(home_away, include_groups=False)
         .reset_index()
     )
+    if ha_df.empty or "avg_pts_home" not in ha_df.columns:
+        ha_df = pd.DataFrame(columns=[
+            "player_id", "avg_pts_home", "avg_pts_away", "home_away_delta"
+        ])
 
     # ── 4. Upcoming fixture difficulty ────────────────────────────────────
     from src.analytics.analytics import compute_dynamic_fdr, _get_fdr
@@ -161,7 +181,7 @@ def build_feature_matrix(
         "influence", "creativity", "threat", "ict_index",
         "expected_goals", "expected_assists", "expected_goal_involvements",
         "expected_goals_conceded", "value_season", "team_id",
-        "chance_of_playing_next_round",
+        "chance_of_playing_next_round", "defensive_contribution",
     ]].copy().rename(columns={"id": "player_id"})
 
     # Aggregate deduction columns from history (not in players table)
@@ -187,13 +207,24 @@ def build_feature_matrix(
     # xGI per 90
     base["xgi_per_90"] = base["expected_goal_involvements"] / gw_played
 
+    defcon_thresholds = {"DEF": 10.0, "MID": 12.0}
+    base["defcon_threshold"] = base["position"].map(defcon_thresholds).fillna(0)
+    base["defcon_per_90"] = (
+        base["defensive_contribution"] / gw_played
+    ).where(base["defcon_threshold"] > 0, 0)
+    base["defcon_pts_per_90"] = (
+        base["defcon_per_90"] / base["defcon_threshold"] * 2
+    ).where(base["defcon_threshold"] > 0, 0)
+
     # ── FPL clean-sheet scoring rules encoded as features ─────────────────
     # GK=4, DEF=4, MID=1, FWD=0  — make the rule explicit so XGBoost
     # doesn't have to learn it from data alone
     cs_pts_map  = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
     gc_pts_map  = {"GK": -0.5, "DEF": -0.5, "MID": 0.0, "FWD": 0.0}  # per goal conceded
+    goal_pts_map = {"GK": 6, "DEF": 6, "MID": 5, "FWD": 4}
     base["cs_pts_multiplier"] = base["position"].map(cs_pts_map).fillna(0)
     base["gc_pts_multiplier"] = base["position"].map(gc_pts_map).fillna(0)
+    base["goal_pts_multiplier"] = base["position"].map(goal_pts_map).fillna(0)
 
     # ── Defensive derived features ────────────────────────────────────────
     # Saves per 90 (GKs only earn points here)
@@ -251,6 +282,19 @@ def build_feature_matrix(
     feat["form_save_pts"] = feat["form_saves"] / 3.0
     # Penalty saved pts (5pts, GKs only)
     feat["form_pen_save_pts"] = feat["form_penalties_saved"] * 5.0
+    feat["form_appearance_pts"] = (
+        (feat["form_minutes"] > 0).astype(float)
+        + (feat["form_minutes"] >= 60).astype(float)
+    )
+    feat["form_goal_pts"] = feat["form_goals"] * feat["goal_pts_multiplier"]
+    feat["form_assist_pts"] = feat["form_assists"] * 3.0
+    feat["form_card_pts"] = feat["form_yellow_cards"] * -1 + feat["form_red_cards"] * -3
+    feat["form_own_goal_pts"] = feat["form_own_goals"] * -2.0
+    feat["form_penalty_miss_pts"] = feat["form_penalties_missed"] * -2.0
+    defcon_threshold = feat["defcon_threshold"].replace(0, np.nan)
+    feat["form_defcon_pts"] = (
+        feat["form_defcon"] / defcon_threshold * 2
+    ).fillna(0)
 
     # Fill NAs for new players with no history
     numeric_cols = feat.select_dtypes(include=[np.number]).columns
@@ -271,7 +315,10 @@ FEATURE_COLS = [
     # form_gc_pts  = form_gc * multiplier (GK/DEF=-0.5/goal, MID/FWD=0)
     # form_save_pts = saves / 3 (GKs only in practice)
     # form_pen_save_pts = pen saves * 5 (GKs only)
+    "form_appearance_pts", "form_goal_pts", "form_assist_pts",
+    "form_card_pts", "form_own_goal_pts", "form_penalty_miss_pts",
     "form_cs_pts", "form_gc_pts", "form_save_pts", "form_pen_save_pts",
+    "form_defcon_pts",
     # Raw defensive signals (position dummies let model weight these correctly)
     "form_cs", "form_saves", "form_gc", "form_xgc", "form_clean_sheet_rate",
     # ── Deduction risk (all positions — FWDs press, get booked) ──────────
@@ -290,13 +337,15 @@ FEATURE_COLS = [
     "expected_goals", "expected_assists", "expected_goal_involvements",
     "expected_goals_conceded", "value_season",
     "clean_sheets", "goals_conceded", "saves",
+    "defensive_contribution",
     "yellow_cards", "red_cards", "own_goals", "penalties_missed", "penalties_saved",
     # ── Derived per-90 stats ──────────────────────────────────────────────
     "availability", "pts_per_million",
     "xgi_per_90", "saves_per_90", "xgc_per_90", "gc_per_90", "cs_rate",
     "team_cs_rate_recent",
     # ── FPL scoring rule multipliers (explicit position encoding) ─────────
-    "cs_pts_multiplier", "gc_pts_multiplier",
+    "cs_pts_multiplier", "gc_pts_multiplier", "goal_pts_multiplier",
+    "defcon_threshold", "defcon_per_90", "defcon_pts_per_90",
     # ── Position dummies ──────────────────────────────────────────────────
     "pos_GK", "pos_DEF", "pos_MID", "pos_FWD",
     # ── Team strength (all 4 combinations) ───────────────────────────────

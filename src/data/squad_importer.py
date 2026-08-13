@@ -49,8 +49,19 @@ def import_squad_from_fpl(manager_id: int, gameweek: Optional[int] = None, user_
             logger.info("Importing squad for manager {} GW{}", manager_id, gameweek)
 
             # ── Fetch picks ───────────────────────────────────────────────
-            picks_resp = client.get(f"{BASE}/entry/{manager_id}/event/{gameweek}/picks/")
-            picks_resp.raise_for_status()
+            try:
+                picks_resp = client.get(f"{BASE}/entry/{manager_id}/event/{gameweek}/picks/")
+                picks_resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 404:
+                    return ImportResult(
+                        False, 0, 0,
+                        f"No picks found for GW{gameweek}. Either the manager ID is wrong, "
+                        f"or (more likely if this is early in the season) the GW{gameweek} deadline "
+                        f"hasn't passed yet so FPL hasn't published squads for it.",
+                        [],
+                    )
+                raise
             picks_data = picks_resp.json()
 
             picks = picks_data.get("picks", [])

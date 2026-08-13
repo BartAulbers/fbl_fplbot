@@ -168,7 +168,7 @@ async def refresh_fpl_data(include_predictions: bool = True) -> None:
 async def nightly_refresh() -> None:
     """
     Full refresh + pre-compute fixture caches.
-    Called by the scheduler at 19:00 daily.
+    Called by the scheduler at 01:00 UTC daily.
     Falls back gracefully on any error so the scheduler keeps running.
     """
     from bot import cache

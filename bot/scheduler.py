@@ -34,7 +34,7 @@ class DeadlineScheduler:
         )
         self.scheduler.add_job(
             self.nightly_data_refresh,
-            trigger=CronTrigger(hour=7, minute=0, timezone="UTC"),
+            trigger=CronTrigger(hour=1, minute=0, timezone="UTC"),
             id="nightly-refresh",
             replace_existing=True,
             max_instances=1,
@@ -48,7 +48,7 @@ class DeadlineScheduler:
         )
         self.scheduler.start()
         loop.create_task(self.check_deadlines())
-        logger.info("Scheduler started — data refresh 07:00, GW recap 09:00 UTC")
+        logger.info("Scheduler started — data/model refresh 01:00, GW recap 09:00 UTC")
 
     async def nightly_data_refresh(self) -> None:
         logger.info("Nightly refresh job triggered")

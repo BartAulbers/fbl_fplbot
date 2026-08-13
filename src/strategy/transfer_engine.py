@@ -25,10 +25,11 @@ from config.settings import settings
 
 @dataclass
 class TransferSuggestion:
-    player_out: dict          # {player_id, web_name, pos, cost, xpts, xpts_3gw}
+    player_out: dict          # {player_id, web_name, pos, cost, xpts, xpts_3gw, xpts_5gw}
     player_in: dict           # same
     expected_gain_1gw: float  # xpts_in - xpts_out for next GW
     expected_gain_3gw: float  # xpts_in_3gw - xpts_out_3gw
+    expected_gain_5gw: float  # xpts_in_5gw - xpts_out_5gw
     hit_required: bool
     net_gain: float           # expected_gain - (4 if hit else 0)
     reasoning: str
@@ -111,11 +112,12 @@ def recommend_transfers(
         for _, in_player in candidates.head(3).iterrows():
             gain_1gw = in_player.get("xpts", 0) - out_player.get("xpts", 0)
             gain_3gw = in_player.get("xpts_3gw", 0) - out_player.get("xpts_3gw", 0)
+            gain_5gw = in_player.get("xpts_5gw", 0) - out_player.get("xpts_5gw", 0)
 
-            if gain_1gw <= 0.5:
-                continue  # skip negligible gains even before hit check
+            if gain_1gw <= 0.5 and gain_5gw <= 0.5:
+                continue  # skip negligible gains across both planning horizons
 
-            reasoning = _build_reasoning(out_player, in_player, gain_1gw, gain_3gw, False)
+            reasoning = _build_reasoning(out_player, in_player, gain_1gw, gain_3gw, gain_5gw, False)
             confidence = _assess_confidence(in_player, gain_1gw)
 
             suggestions.append(TransferSuggestion(
@@ -123,8 +125,9 @@ def recommend_transfers(
                 player_in=_player_dict(in_player),
                 expected_gain_1gw=round(gain_1gw, 2),
                 expected_gain_3gw=round(gain_3gw, 2),
+                expected_gain_5gw=round(gain_5gw, 2),
                 hit_required=False,  # assigned below after sorting
-                net_gain=round(gain_1gw, 2),
+                net_gain=round(gain_5gw, 2),
                 reasoning=reasoning,
                 confidence=confidence,
             ))
@@ -139,7 +142,7 @@ def recommend_transfers(
             final.append(s)
         else:
             # Would cost a -4 hit
-            net_after_hit = s.expected_gain_3gw - 4
+            net_after_hit = s.expected_gain_5gw - 4
             if net_after_hit < settings.hit_threshold_pts:
                 continue  # not worth the hit
             # Rebuild with hit flag
@@ -150,6 +153,7 @@ def recommend_transfers(
                 pd.Series(s.player_in),
                 s.expected_gain_1gw,
                 s.expected_gain_3gw,
+                s.expected_gain_5gw,
                 True,
             )
             final.append(TransferSuggestion(
@@ -157,6 +161,7 @@ def recommend_transfers(
                 player_in=s.player_in,
                 expected_gain_1gw=s.expected_gain_1gw,
                 expected_gain_3gw=s.expected_gain_3gw,
+                expected_gain_5gw=s.expected_gain_5gw,
                 hit_required=True,
                 net_gain=round(net_after_hit, 2),
                 reasoning=hit_reasoning,
@@ -184,18 +189,18 @@ def _available_funds(my_squad_df: pd.DataFrame, total_budget: float) -> float:
 def _score_candidate(row: pd.Series, risk_appetite: float) -> float:
     """
     Scoring for transfer candidate:
-    - Base: xpts_3gw (medium-term view)
+    - Base: xpts_5gw (planning horizon)
     - Bonus: consistency, fixture, differential
     """
-    xpts_3gw = row.get("xpts_3gw", 0)
+    xpts_5gw = row.get("xpts_5gw", 0)
     fdr = row.get("fdr_avg_3gw", 3)
-    fixture_bonus = (5 - fdr) / 5.0 * xpts_3gw * 0.15
+    fixture_bonus = (5 - fdr) / 5.0 * xpts_5gw * 0.15
 
     consistency = row.get("consistency", 0.5)
-    diff_bonus = (1 - row.get("selected_by_percent", 50) / 100.0) * xpts_3gw * 0.2
+    diff_bonus = (1 - row.get("selected_by_percent", 50) / 100.0) * xpts_5gw * 0.2
 
-    safe_score = xpts_3gw + fixture_bonus + consistency * xpts_3gw * 0.1
-    risky_score = xpts_3gw + fixture_bonus + diff_bonus
+    safe_score = xpts_5gw + fixture_bonus + consistency * xpts_5gw * 0.1
+    risky_score = xpts_5gw + fixture_bonus + diff_bonus
 
     return safe_score * (1 - risk_appetite) + risky_score * risk_appetite
 
@@ -208,17 +213,27 @@ def _player_dict(row: pd.Series) -> dict:
         "cost": float(row["now_cost"]),
         "xpts": float(row.get("xpts", 0)),
         "xpts_3gw": float(row.get("xpts_3gw", 0)),
+        "xpts_5gw": float(row.get("xpts_5gw", 0)),
         "ownership": float(row.get("selected_by_percent", 0)),
         "fdr_3gw": float(row.get("fdr_avg_3gw", 3)),
     }
 
 
-def _build_reasoning(out: pd.Series, inp: pd.Series, g1: float, g3: float, hit: bool) -> str:
+def _build_reasoning(
+    out: pd.Series,
+    inp: pd.Series,
+    g1: float,
+    g3: float,
+    g5: float,
+    hit: bool,
+) -> str:
     parts = []
     if g1 > 2:
         parts.append(f"Expected +{g1:.1f}pts next GW")
     if g3 > 5:
         parts.append(f"+{g3:.1f}pts over 3 GWs")
+    if g5 > 8:
+        parts.append(f"+{g5:.1f}pts over 5 GWs")
     fdr_out = out.get("fdr_avg_3gw", 3)
     fdr_in = inp.get("fdr_avg_3gw", 3)
     if fdr_in < fdr_out - 0.5:
@@ -228,7 +243,7 @@ def _build_reasoning(out: pd.Series, inp: pd.Series, g1: float, g3: float, hit: 
     if inp.get("selected_by_percent", 50) < 10:
         parts.append(f"Differential ({inp['selected_by_percent']:.1f}% owned)")
     if hit:
-        parts.append(f"Requires -4 hit (net gain: {g3 - 4:.1f}pts over 3GWs)")
+        parts.append(f"Requires -4 hit (net gain: {g5 - 4:.1f}pts over 5 GWs)")
     return ". ".join(parts) if parts else "Marginal improvement"
 
 
@@ -256,14 +271,14 @@ def _build_recommendation(
 
     if not free_moves:
         best = suggestions[0]
-        if best.expected_gain_3gw >= settings.hit_threshold_pts + 4:
+        if best.expected_gain_5gw >= settings.hit_threshold_pts + 4:
             return (
                 f"⚠️ CONSIDER HIT — {best.player_in['web_name']} over {best.player_out['web_name']} "
-                f"expected +{best.expected_gain_3gw:.1f}pts over 3GWs (net +{best.net_gain:.1f} after -4). "
+                f"expected +{best.expected_gain_5gw:.1f}pts over 5GWs (net +{best.net_gain:.1f} after -4). "
                 f"Only take if confident in fixtures."
             )
         return (
-            f"🔒 ROLL TRANSFER — Hit not justified ({best.expected_gain_3gw:.1f}pts gain < "
+            f"🔒 ROLL TRANSFER — Hit not justified ({best.expected_gain_5gw:.1f}pts gain < "
             f"{settings.hit_threshold_pts + 4:.0f}pts threshold). Wait for a better opportunity."
         )
 
@@ -273,10 +288,10 @@ def _build_recommendation(
     if free_transfers > 1 and n_free >= free_transfers:
         # Enough good moves to use all free transfers
         names_in = ", ".join(s.player_in["web_name"] for s in free_moves[:free_transfers])
-        total_gain = sum(s.expected_gain_3gw for s in free_moves[:free_transfers])
+        total_gain = sum(s.expected_gain_5gw for s in free_moves[:free_transfers])
         return (
             f"✅ USE ALL {free_transfers} FTs — Bring in {names_in}. "
-            f"Combined expected +{total_gain:.1f}pts over 3GWs."
+            f"Combined expected +{total_gain:.1f}pts over 5GWs."
             + (f" Also {len(hit_moves)} hit option(s) available." if hit_moves else "")
         )
 
@@ -292,7 +307,7 @@ def _build_recommendation(
     # Single free transfer
     return (
         f"✅ FREE TRANSFER — {best.player_in['web_name']} in, {best.player_out['web_name']} out. "
-        f"Expected +{best.expected_gain_1gw:.1f}pts GW, +{best.expected_gain_3gw:.1f}pts 3GW. "
+        f"Expected +{best.expected_gain_1gw:.1f}pts GW, +{best.expected_gain_5gw:.1f}pts 5GW. "
         f"Confidence: {best.confidence.upper()}."
         + (f" Also {len(hit_moves)} hit option(s) available." if hit_moves else "")
     )

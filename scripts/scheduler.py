@@ -7,7 +7,7 @@ Usage: python scripts/scheduler.py
 Schedule:
 - Full pipeline: every day at 08:00 and 20:00
 - Metrics refresh: after each pipeline run
-- Model predictions: daily at 09:00
+- Model predictions: daily at 01:00 Europe/London
 """
 import asyncio
 import sys
@@ -104,10 +104,10 @@ if __name__ == "__main__":
     # Pipeline runs twice daily
     scheduler.add_job(run_pipeline_job, CronTrigger(hour="8,20", minute=0), id="pipeline")
 
-    # Predictions daily at 09:00
-    scheduler.add_job(run_predictions_job, CronTrigger(hour=9, minute=0), id="predictions")
+    # Predictions daily at 01:00
+    scheduler.add_job(run_predictions_job, CronTrigger(hour=1, minute=0), id="predictions")
 
-    logger.info("Scheduler started. Jobs: pipeline (8:00, 20:00), predictions (9:00)")
+    logger.info("Scheduler started. Jobs: pipeline (8:00, 20:00), predictions (01:00 Europe/London)")
 
     try:
         scheduler.start()
