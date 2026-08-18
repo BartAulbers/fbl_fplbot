@@ -58,6 +58,16 @@ class DeadlineScheduler:
         except Exception:
             logger.exception("Nightly refresh job failed")
 
+        try:
+            from bot.deadline_monitor import check_deadline_changes
+
+            # Check for deadline changes (e.g., double gameweeks)
+            result = await check_deadline_changes(self.application)
+            if result.get("changed_gws"):
+                logger.info("Deadline monitor: {} GW(s) changed", len(result["changed_gws"]))
+        except Exception:
+            logger.exception("Deadline monitor job failed")
+
     async def check_and_send_gw_recap(self) -> None:
         """Runs at 09:00 UTC daily. Sends GW recap to all users if a new GW just finished."""
         from bot import cache
