@@ -22,17 +22,40 @@ POSITION_MAP = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
 # ── Teams ──────────────────────────────────────────────────────────────────────
 
 def _upsert_teams(con, teams: list[dict]) -> None:
-    df = pd.DataFrame([{
-        "id": t["id"],
-        "name": t["name"],
-        "short_name": t["short_name"],
-        "strength": t["strength"],
-        "strength_attack_home": t["strength_attack_home"],
-        "strength_attack_away": t["strength_attack_away"],
-        "strength_defence_home": t["strength_defence_home"],
-        "strength_defence_away": t["strength_defence_away"],
-        "updated_at": pd.Timestamp.now(),
-    } for t in teams])
+    rows = []
+    for t in teams:
+        overall_home = t.get("strength_overall_home") or 0
+        overall_away = t.get("strength_overall_away") or 0
+        attack_home = t.get("strength_attack_home") or 0
+        attack_away = t.get("strength_attack_away") or 0
+        defence_home = t.get("strength_defence_home") or 0
+        defence_away = t.get("strength_defence_away") or 0
+        strength = t.get("strength")
+
+        # FPL doesn't publish granular attack/defence strength splits until a
+        # few gameweeks into the season (they're 0 preseason / at GW1). Fall
+        # back to strength_overall_home/away — available from day one — so
+        # the model always has a meaningful team-strength signal instead of
+        # a flat 0 for every team.
+        attack_home = attack_home or overall_home
+        attack_away = attack_away or overall_away
+        defence_home = defence_home or overall_home
+        defence_away = defence_away or overall_away
+        if not strength and (overall_home or overall_away):
+            strength = round((overall_home + overall_away) / 2)
+
+        rows.append({
+            "id": t["id"],
+            "name": t["name"],
+            "short_name": t["short_name"],
+            "strength": strength,
+            "strength_attack_home": attack_home,
+            "strength_attack_away": attack_away,
+            "strength_defence_home": defence_home,
+            "strength_defence_away": defence_away,
+            "updated_at": pd.Timestamp.now(),
+        })
+    df = pd.DataFrame(rows)
     con.execute("DELETE FROM teams")
     con.execute("INSERT INTO teams SELECT * FROM df")
     logger.info("Upserted {} teams", len(df))

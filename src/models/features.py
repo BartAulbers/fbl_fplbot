@@ -147,15 +147,53 @@ def build_feature_matrix(
     team_str = teams[["id", "strength_attack_home", "strength_attack_away",
                        "strength_defence_home", "strength_defence_away"]].copy()
 
+    # ── Team-strength-based clean-sheet prior (independent of "form") ─────
+    # Gives the model a direct, well-scaled clean-sheet signal derived purely
+    # from official team strength ratings. Crucial at GW1 / early season when
+    # there's no in-season "form" data yet for form_cs / form_gc / form_xgc
+    # to draw on — without this, defence/attack strength differences (e.g.
+    # a promoted side vs a top-6 side) have almost no way to reach the model.
+    def _minmax(col: pd.Series) -> pd.Series:
+        lo, hi = col.min(), col.max()
+        if hi - lo < 1e-9:
+            return pd.Series(0.5, index=col.index)
+        return (col - lo) / (hi - lo)
+
+    strength_norm = teams[["id"]].copy()
+    strength_norm["def_home_n"] = _minmax(teams["strength_defence_home"])
+    strength_norm["def_away_n"] = _minmax(teams["strength_defence_away"])
+    strength_norm["att_home_n"] = _minmax(teams["strength_attack_home"])
+    strength_norm["att_away_n"] = _minmax(teams["strength_attack_away"])
+    strength_lookup = strength_norm.set_index("id").to_dict("index")
+
+    def _cs_prior(team_id: int, opponent_id: int, team_is_home: bool) -> float:
+        team_s = strength_lookup.get(team_id)
+        opp_s = strength_lookup.get(opponent_id)
+        if not team_s or not opp_s:
+            return 0.5
+        team_def = team_s["def_home_n"] if team_is_home else team_s["def_away_n"]
+        opp_att = opp_s["att_away_n"] if team_is_home else opp_s["att_home_n"]
+        # Higher relative defence vs opponent attack ⇒ higher CS probability
+        diff = team_def - opp_att
+        return float(1 / (1 + np.exp(-3.0 * diff)))
+
     def get_fixture_score(player_team_id: int, is_home: bool) -> dict:
         team_fixtures = upcoming[
             (upcoming["team_h"] == player_team_id) | (upcoming["team_a"] == player_team_id)
         ].head(settings.fixture_lookahead)
 
         if len(team_fixtures) == 0:
-            return {"fdr_next1": 3, "fdr_avg_3gw": 3, "fdr_avg_5gw": 3, "has_fixture_next": 0}
+            return {
+                "fdr_next1": 3, "fdr_avg_3gw": 3, "fdr_avg_5gw": 3, "has_fixture_next": 0,
+                "cs_prior_next1": 0.5, "cs_prior_avg_3gw": 0.5,
+            }
 
         difficulties = [_get_fdr(f, player_team_id, dynamic_fdr) for _, f in team_fixtures.iterrows()]
+        cs_priors = []
+        for _, f in team_fixtures.iterrows():
+            team_is_home = f["team_h"] == player_team_id
+            opp_id = f["team_a"] if team_is_home else f["team_h"]
+            cs_priors.append(_cs_prior(player_team_id, opp_id, team_is_home))
 
         d = difficulties
         return {
@@ -163,6 +201,8 @@ def build_feature_matrix(
             "fdr_avg_3gw": np.mean(d[:3]),
             "fdr_avg_5gw": np.mean(d[:5]) if len(d) >= 5 else np.mean(d),
             "has_fixture_next": 1,
+            "cs_prior_next1": cs_priors[0] if cs_priors else 0.5,
+            "cs_prior_avg_3gw": float(np.mean(cs_priors[:3])),
         }
 
     # Build per-player fixture features
@@ -295,6 +335,9 @@ def build_feature_matrix(
     feat["form_defcon_pts"] = (
         feat["form_defcon"] / defcon_threshold * 2
     ).fillna(0)
+    # Team-strength-based clean-sheet prior, scaled into expected points —
+    # gives the model a direct, non-form-dependent CS signal (see note above)
+    feat["cs_prior_pts"] = feat["cs_prior_next1"] * feat["cs_pts_multiplier"]
 
     # Fill NAs for new players with no history
     numeric_cols = feat.select_dtypes(include=[np.number]).columns
@@ -331,6 +374,8 @@ FEATURE_COLS = [
     "avg_pts_home", "avg_pts_away", "home_away_delta",
     # ── Fixture difficulty ────────────────────────────────────────────────
     "fdr_next1", "fdr_avg_3gw", "fdr_avg_5gw", "has_fixture_next",
+    # ── Team-strength-based clean-sheet prior (works even with zero form) ─
+    "cs_prior_next1", "cs_prior_avg_3gw", "cs_prior_pts",
     # ── Season-level stats ────────────────────────────────────────────────
     "now_cost", "selected_by_percent", "minutes",
     "influence", "creativity", "threat", "ict_index",

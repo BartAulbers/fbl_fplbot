@@ -75,7 +75,10 @@ def train(
         raise ValueError("Need at least 5 gameweeks of history to train.")
 
     rows = []
-    for gw in all_gws[3:]:  # need 3 GWs for features
+    for gw in all_gws:  # include GW1-3 (zero/sparse history) so the model
+                        # learns to use fixture/team-strength signals for
+                        # the real cold-start case: predicting a new season's
+                        # GW1 with no prior in-season form data available.
         feat = build_feature_matrix(player_history, fixtures, players, teams, target_gw=gw)
         # Actual points for this GW — rename to avoid collision with season total
         actual = (
