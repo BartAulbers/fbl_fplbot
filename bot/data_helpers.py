@@ -6,7 +6,7 @@ from loguru import logger
 from src.analytics.analytics import compute_player_metrics, fixture_swing_alerts
 from src.data.pipeline import run_full_pipeline
 from src.database.db import get_connection
-from src.models.expected_points import predict_multi_gw
+from src.models.expected_points import predict_multi_gw, train
 
 
 def get_current_gw() -> int:
@@ -132,6 +132,12 @@ async def refresh_fpl_data(include_predictions: bool = True) -> None:
         from bot import cache
         cache.write("fpl_data_refreshed", {"gw": current_gw})
         return
+
+    try:
+        train(history, fixtures, players, teams)
+        logger.info("Expected points model retrained")
+    except Exception:
+        logger.exception("Model retraining failed — falling back to existing model file")
 
     try:
         xpts = predict_multi_gw(history, fixtures, players, teams, current_gw)
