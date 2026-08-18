@@ -194,6 +194,11 @@ def predict_next_gw(
     # Use XGBoost's predict_contributions for rough uncertainty
     preds_clipped = np.clip(preds, 0, 25)
 
+    # ── Hard override for injured/suspended/unavailable players ───────────
+    # The model can under-weight this signal since it's rare in training
+    # data; force it here regardless of what the model learned.
+    preds_clipped = preds_clipped * feat["status_playing_score"].values
+
     result = pd.DataFrame({
         "player_id": player_ids,
         "xpts": preds_clipped,
@@ -226,6 +231,7 @@ def predict_multi_gw(
         X = feat[FEATURE_COLS].fillna(0).values.astype(np.float32)
         X_scaled = scaler.transform(X)
         preds = np.clip(model.predict(X_scaled), 0, 25)
+        preds = preds * feat["status_playing_score"].values
         all_preds.append(pd.DataFrame({"player_id": player_ids, f"xpts_gw{gw}": preds}))
 
     merged = all_preds[0]

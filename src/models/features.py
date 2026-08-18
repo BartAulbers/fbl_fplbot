@@ -214,6 +214,10 @@ def build_feature_matrix(
     fix_df = pd.DataFrame(fix_rows)
 
     # ── 5. Current season stats (base features) ───────────────────────────
+    if "status" not in players.columns:
+        players = players.copy()
+        players["status"] = "a"
+
     base = players[[
         "id", "position", "now_cost", "selected_by_percent",
         "total_points", "minutes", "goals_scored", "assists",
@@ -221,7 +225,7 @@ def build_feature_matrix(
         "influence", "creativity", "threat", "ict_index",
         "expected_goals", "expected_assists", "expected_goal_involvements",
         "expected_goals_conceded", "value_season", "team_id",
-        "chance_of_playing_next_round", "defensive_contribution",
+        "chance_of_playing_next_round", "defensive_contribution", "status",
     ]].copy().rename(columns={"id": "player_id"})
 
     # Aggregate deduction columns from history (not in players table)
@@ -238,6 +242,21 @@ def build_feature_matrix(
 
     # ── Availability risk (0 = definitely plays, 1 = unknown) ────────────
     base["availability"] = base["chance_of_playing_next_round"].fillna(75) / 100.0
+
+    # ── Injury/suspension status (hard signal, independent of the %) ─────
+    # FPL status codes: a=available, d=doubtful, i=injured, s=suspended,
+    # u=unavailable (e.g. transferred out), n=not registered for squad.
+    _status_score = {"a": 1.0, "d": 0.5, "i": 0.0, "s": 0.0, "u": 0.0, "n": 0.0}
+    base["status_playing_score"] = base["status"].map(_status_score).fillna(1.0)
+
+    # ── Rotation risk (heuristic: low avg minutes over the season = risk) ─
+    avg_mins = (
+        hist_season.groupby("player_id")["minutes"].mean()
+        .reset_index().rename(columns={"minutes": "_avg_minutes"})
+    )
+    base = base.merge(avg_mins, on="player_id", how="left")
+    base["rotation_risk"] = 1 - (base["_avg_minutes"].fillna(0) / 90).clip(0, 1)
+    base = base.drop(columns=["_avg_minutes"])
 
     # Points per million (value metric)
     base["pts_per_million"] = base["total_points"] / (base["now_cost"] + 0.1)
@@ -388,6 +407,8 @@ FEATURE_COLS = [
     "availability", "pts_per_million",
     "xgi_per_90", "saves_per_90", "xgc_per_90", "gc_per_90", "cs_rate",
     "team_cs_rate_recent",
+    # ── Injury/suspension + rotation risk ─────────────────────────────────
+    "status_playing_score", "rotation_risk",
     # ── FPL scoring rule multipliers (explicit position encoding) ─────────
     "cs_pts_multiplier", "gc_pts_multiplier", "goal_pts_multiplier",
     "defcon_threshold", "defcon_per_90", "defcon_pts_per_90",
